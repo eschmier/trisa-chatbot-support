@@ -1,0 +1,12 @@
+[
+  {
+    "id": "KB-101",
+    "title": "EXAMPLE: Reset your password",
+    "body": "Example article. Replace with your real steps. Go to the sign-in page, click Forgot password, enter your email, and follow the link we send you."
+  },
+  {
+    "id": "KB-EXAMPLE",
+    "title": "REPLACE ME: Returns and exchanges",
+    "body": "Replace this example with your real returns and exchange policy. Add one entry per help article. The agent only answers customers from articles in this file."
+  }
+]
