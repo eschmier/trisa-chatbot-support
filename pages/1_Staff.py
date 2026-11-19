@@ -56,6 +56,7 @@ with left:
         else:
             when = datetime.fromtimestamp(s["loaded_at"]).strftime("%b %d, %I:%M %p")
             st.write(f"**{s['sections']}** sections from **{s['pages']}** pages · read {when}")
+            st.caption(f"Search by meaning: {s['semantic']}")
             if s["pages"] and not s["sections"]:
                 st.warning("Pages were read but no text was found. The site may need JavaScript to show its content.")
         if s["problems"]:
@@ -119,6 +120,14 @@ with right:
                 if route.get("suggested_next_steps"):
                     st.write("**Suggested next steps**")
                     st.markdown("\n".join(f"- {x}" for x in route["suggested_next_steps"]))
+            used = r.get("articles")
+            if used is not None:
+                st.write("**Help pages the agent was shown**")
+                if used:
+                    st.markdown("\n".join(f"- [{a['title'] or a['url']}]({a['url']})" if a.get("url")
+                                         else f"- {a['title']}" for a in used))
+                else:
+                    st.caption("None found for this question.")
             if c["status"] in ("blocked", "error"):
                 st.write("**Reason**")
                 st.markdown("\n".join(f"- {x}" for x in (r.get("reason") or [])))

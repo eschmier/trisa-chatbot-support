@@ -58,34 +58,66 @@ def _words(text):
     return {_stem(w) for w in re.findall(r"[a-z0-9]{3,}", text.lower()) if w not in STOP}
 
 
+SEMANTIC_MIN = float(os.environ.get("SEMANTIC_MIN", "0.55"))  # how close in meaning a section must be
+SEMANTIC_TOP = 8
+
+
+def _semantic_scores(message, help_sections):
+    """Similarity of the question to each help-site section, or None if meaning search isn't ready."""
+    vecs = _site.get("vectors")
+    emb = _site.get("embedder")
+    if vecs is None or emb is None or _site.get("vectors_for") is not help_sections or len(vecs) != len(help_sections):
+        return None
+    try:
+        return vecs @ emb.query(message)
+    except Exception:
+        return None
+
+
 def pick_articles(message, help_sections=(), limit=5, per_page=2):
     """Send the most relevant passages to the agent: kb.json entries plus help-site sections.
 
-    Word matching where rare words count more than common ones ("webhook" beats "deploy" when
-    "deploy" appears all over the site), title words count double, and no single page can
-    fill every slot."""
-    words = _words(message)
-    if not words:
-        return []
-    docs = []
-    for art in list(load_kb()) + list(help_sections):
-        docs.append((art, _words(art.get("title", "")), _words(art.get("body", ""))))
+    Two searches are combined. Meaning search (when ready) finds pages worded differently from
+    the question. Word search (always on) counts rare words more than common ones, so "webhook"
+    beats "deploy" when "deploy" is all over the site. No single page can fill every slot."""
+    kb = list(load_kb())
+    docs = kb + list(help_sections)
     if not docs:
         return []
-    n = len(docs)
-    weight = {}
-    for w in words:
-        df = sum(1 for _, t, b in docs if w in t or w in b)
-        if df:
-            weight[w] = math.log(1 + n / df)
-    scored = []
-    for art, t, b in docs:
-        score = sum(wt * (2 if w in t else 1) for w, wt in weight.items() if w in t or w in b)
-        if score >= 1.5:
-            scored.append((score, art))
-    scored.sort(key=lambda x: -x[0])
+    words = _words(message)
+
+    # word search
+    kw_rank = []
+    if words:
+        parts = [(art, _words(art.get("title", "")), _words(art.get("body", ""))) for art in docs]
+        n = len(parts)
+        weight = {}
+        for w in words:
+            df = sum(1 for _, t, b in parts if w in t or w in b)
+            if df:
+                weight[w] = math.log(1 + n / df)
+        scored = []
+        for i, (_, t, b) in enumerate(parts):
+            score = sum(wt * (2 if w in t else 1) for w, wt in weight.items() if w in t or w in b)
+            if score >= 1.5:
+                scored.append((score, i))
+        kw_rank = [i for _, i in sorted(scored, reverse=True)]
+
+    # meaning search (sections only; kb.json entries are word-search only)
+    sem_rank = []
+    sims = _semantic_scores(message, help_sections)
+    if sims is not None:
+        order = sorted(range(len(sims)), key=lambda j: -float(sims[j]))[:SEMANTIC_TOP]
+        sem_rank = [len(kb) + j for j in order if float(sims[j]) >= SEMANTIC_MIN]
+
+    # combine: reciprocal rank fusion
+    fused = {}
+    for rank_list in (kw_rank, sem_rank):
+        for pos, i in enumerate(rank_list):
+            fused[i] = fused.get(i, 0.0) + 1.0 / (60 + pos)
     picked, per = [], {}
-    for _, art in scored:
+    for i, _ in sorted(fused.items(), key=lambda kv: -kv[1]):
+        art = docs[i]
         key = art.get("url") or art.get("id")
         if per.get(key, 0) >= per_page:
             continue
@@ -100,9 +132,32 @@ def pick_articles(message, help_sections=(), limit=5, per_page=2):
 
 import threading
 
-_site = {"sections": [], "pages": 0, "problems": [], "loaded_at": 0.0, "loading": False, "error": ""}
+_site = {"sections": [], "pages": 0, "problems": [], "loaded_at": 0.0, "loading": False, "error": "",
+         "vectors": None, "vectors_for": None, "embedder": None, "semantic": "not started"}
 _site_lock = threading.Lock()
 SITE_REFRESH_SECONDS = 24 * 3600
+
+
+def _get_embedder():
+    if _site.get("embedder") is None:
+        import semantic
+        _site["embedder"] = semantic.Embedder()
+    return _site["embedder"]
+
+
+def _build_vectors(sections):
+    """Meaning search index. Word search works meanwhile; any failure just leaves word search on."""
+    if not sections:
+        _site["semantic"] = "off (no help pages)"
+        return
+    try:
+        import semantic
+        _site["semantic"] = "building"
+        emb = _get_embedder()
+        vecs = emb.docs([semantic.section_text(s) for s in sections])
+        _site.update(vectors=vecs, vectors_for=sections, semantic="on")
+    except Exception as exc:
+        _site.update(vectors=None, vectors_for=None, semantic=f"off, word search only ({type(exc).__name__}: {str(exc)[:120]})")
 
 
 def _load_site():
@@ -110,6 +165,7 @@ def _load_site():
     try:
         sections, pages, problems = helpsite.load_help_site()
         _site.update(sections=sections, pages=pages, problems=problems[:20], error="")
+        _build_vectors(sections)
     except Exception as exc:
         _site["error"] = str(exc)
     finally:
@@ -134,7 +190,7 @@ def help_site(refresh=False, wait=False):
 
 
 def help_site_status():
-    return {k: _site[k] for k in ("pages", "problems", "loaded_at", "loading", "error")} | {
+    return {k: _site[k] for k in ("pages", "problems", "loaded_at", "loading", "error", "semantic")} | {
         "sections": len(_site["sections"]), "url": os.environ.get("HELP_SITE_URL", "")}
 
 
@@ -178,8 +234,11 @@ def run_case(message, source, email="", customer_tier="standard", account="", he
     message = (message or "")[:4000]
     if help_sections is None:
         help_sections = help_site()
+    articles = pick_articles(message, help_sections)
     result = pipeline.handle_case(message, customer_tier=customer_tier, account=account,
-                                  kb_articles=pick_articles(message, help_sections))
+                                  kb_articles=articles)
+    # Keep what the agent was shown, so staff can see why it answered or routed.
+    result["articles"] = [{"title": a.get("title", ""), "url": a.get("url", "")} for a in articles]
     case_id = save_case(source, email, message, result)
     return case_id, result
 
