@@ -1,5 +1,6 @@
 """Shared logic for both pages: secrets, help articles, case storage, customer wording."""
 import json
+import math
 import os
 import re
 import sqlite3
@@ -57,21 +58,42 @@ def _words(text):
     return {_stem(w) for w in re.findall(r"[a-z0-9]{3,}", text.lower()) if w not in STOP}
 
 
-def pick_articles(message, help_sections=(), limit=4):
+def pick_articles(message, help_sections=(), limit=5, per_page=2):
     """Send the most relevant passages to the agent: kb.json entries plus help-site sections.
-    Simple word matching; title words count double."""
+
+    Word matching where rare words count more than common ones ("webhook" beats "deploy" when
+    "deploy" appears all over the site), title words count double, and no single page can
+    fill every slot."""
     words = _words(message)
     if not words:
         return []
-    scored = []
+    docs = []
     for art in list(load_kb()) + list(help_sections):
-        title_hits = len(words & _words(art.get("title", "")))
-        body_hits = len(words & _words(art.get("body", "")))
-        score = 2 * title_hits + body_hits
-        if score >= 2:
+        docs.append((art, _words(art.get("title", "")), _words(art.get("body", ""))))
+    if not docs:
+        return []
+    n = len(docs)
+    weight = {}
+    for w in words:
+        df = sum(1 for _, t, b in docs if w in t or w in b)
+        if df:
+            weight[w] = math.log(1 + n / df)
+    scored = []
+    for art, t, b in docs:
+        score = sum(wt * (2 if w in t else 1) for w, wt in weight.items() if w in t or w in b)
+        if score >= 1.5:
             scored.append((score, art))
     scored.sort(key=lambda x: -x[0])
-    return [a for _, a in scored[:limit]]
+    picked, per = [], {}
+    for _, art in scored:
+        key = art.get("url") or art.get("id")
+        if per.get(key, 0) >= per_page:
+            continue
+        per[key] = per.get(key, 0) + 1
+        picked.append(art)
+        if len(picked) >= limit:
+            break
+    return picked
 
 
 # ---------- help website (read in the background, refreshed daily) ----------
