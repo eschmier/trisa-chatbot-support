@@ -42,8 +42,19 @@ STOP = set("the and for you your our are was were with this that have has how ca
            "will would could should there their them they its into about please thanks thank help need want get got".split())
 
 
+_ENDINGS = ("ations", "ation", "ments", "ment", "ings", "ing", "ies", "ed", "es", "s")
+
+
+def _stem(word):
+    """Ignore common endings so 'webhooks' matches 'webhook' and 'deployment' matches 'deploy'."""
+    for end in _ENDINGS:
+        if word.endswith(end) and len(word) - len(end) >= 3:
+            return word[: -len(end)] + ("y" if end == "ies" else "")
+    return word
+
+
 def _words(text):
-    return {w for w in re.findall(r"[a-z0-9]{3,}", text.lower()) if w not in STOP}
+    return {_stem(w) for w in re.findall(r"[a-z0-9]{3,}", text.lower()) if w not in STOP}
 
 
 def pick_articles(message, help_sections=(), limit=4):
