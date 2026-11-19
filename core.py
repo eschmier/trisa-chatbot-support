@@ -13,7 +13,7 @@ import pipeline
 BASE = Path(__file__).parent
 SECRET_KEYS = ["ENDEAVOR_URL", "ENDEAVOR_AUTH_URL", "ENDEAVOR_CLIENT_ID", "ENDEAVOR_CLIENT_SECRET",
                "ENDEAVOR_AGENT", "ENDEAVOR_ENVIRONMENT", "ENDEAVOR_VERSION", "STAFF_PASSWORD", "DB_PATH",
-               "HELP_SITE_URL", "HELP_SITE_MAX_PAGES"]
+               "HELP_SITE_URL", "HELP_SITE_MAX_PAGES", "SEMANTIC_SEARCH", "SEMANTIC_MIN", "EMBEDDING_MODEL"]
 
 
 def load_secrets(secrets):
@@ -58,8 +58,20 @@ def _words(text):
     return {_stem(w) for w in re.findall(r"[a-z0-9]{3,}", text.lower()) if w not in STOP}
 
 
-SEMANTIC_MIN = float(os.environ.get("SEMANTIC_MIN", "0.55"))  # how close in meaning a section must be
 SEMANTIC_TOP = 8
+
+
+def semantic_enabled():
+    """Meaning search is off unless the secret SEMANTIC_SEARCH is set to "on"."""
+    return os.environ.get("SEMANTIC_SEARCH", "off").strip().lower() in ("on", "true", "1", "yes")
+
+
+def _semantic_min():
+    """How close in meaning a section must be (0 to 1)."""
+    try:
+        return float(os.environ.get("SEMANTIC_MIN", "0.55"))
+    except ValueError:
+        return 0.55
 
 
 def _semantic_scores(message, help_sections):
@@ -108,7 +120,7 @@ def pick_articles(message, help_sections=(), limit=5, per_page=2):
     sims = _semantic_scores(message, help_sections)
     if sims is not None:
         order = sorted(range(len(sims)), key=lambda j: -float(sims[j]))[:SEMANTIC_TOP]
-        sem_rank = [len(kb) + j for j in order if float(sims[j]) >= SEMANTIC_MIN]
+        sem_rank = [len(kb) + j for j in order if float(sims[j]) >= _semantic_min()]
 
     # combine: reciprocal rank fusion
     fused = {}
@@ -149,6 +161,9 @@ def _build_vectors(sections):
     """Meaning search index. Word search works meanwhile; any failure just leaves word search on."""
     if not sections:
         _site["semantic"] = "off (no help pages)"
+        return
+    if not semantic_enabled():
+        _site.update(vectors=None, vectors_for=None, semantic='off (add SEMANTIC_SEARCH = "on" to Secrets to enable)')
         return
     try:
         import semantic

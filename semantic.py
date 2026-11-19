@@ -14,7 +14,7 @@ MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 class Embedder:
     def __init__(self, model_name=None):
         from fastembed import TextEmbedding  # imported late: may be missing
-        self._m = TextEmbedding(model_name=model_name or MODEL)
+        self._m = TextEmbedding(model_name=model_name or MODEL, threads=1)  # one thread: gentler on memory
 
     @staticmethod
     def _norm(vecs):
@@ -24,7 +24,7 @@ class Embedder:
 
     def docs(self, texts):
         """Vectors for help-page sections, shape (len(texts), dims)."""
-        return self._norm(self._m.embed(list(texts)))
+        return self._norm(self._m.embed(list(texts), batch_size=8))  # small batches: gentler on memory
 
     def query(self, text):
         """Vector for one customer question."""
