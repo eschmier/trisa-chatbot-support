@@ -278,3 +278,28 @@ def customer_view(result):
         return "blocked", ("Sorry, I can't help with that request. "
                            "If you need support, please describe your issue.")
     return "handoff", "Thanks, I've passed this to our support team. A person will follow up soon."
+
+
+def how_view(result):
+    """A customer-safe 'how I answered' summary. Never guardrail reasons, routing or classification."""
+    status = result.get("status")
+    if status == "blocked":
+        return None
+    steps = ["Checked your message is safe to process"]
+    if status in ("deflected", "routed"):
+        steps.append("Worked out what kind of issue this is")
+    pages = [a for a in (result.get("articles") or []) if a.get("title")]
+    if pages:
+        steps.append("Looked through the help pages")
+    if status == "deflected":
+        steps.append("Wrote this answer from those pages and checked it before sending")
+    elif status == "routed":
+        steps.append("Decided a person should handle this, so I passed it on")
+    else:
+        steps.append("Could not finish, so I passed it to a person")
+    cited = {c for c in (result.get("cited_articles") or [])}
+    used = [a for a in pages if a.get("url") in cited or a.get("url") in " ".join(map(str, cited))] if status == "deflected" else []
+    why = ""
+    if status == "deflected":
+        why = ((result.get("trace") or {}).get("response") or {}).get("reason", "")
+    return {"steps": steps, "pages": used or (pages[:3] if status == "deflected" else []), "why": why}
