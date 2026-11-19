@@ -18,6 +18,13 @@ if "chat" not in st.session_state:
     st.session_state.chat = [{"role": "assistant", "content": "Hi! How can I help today?"}]
     st.session_state.sent = []
 
+def clear_chat():
+    # Only clears what is on screen. Saved cases and the message-rate limit are untouched.
+    st.session_state.chat = [{"role": "assistant", "content": "Hi! How can I help today?"}]
+
+
+st.sidebar.button("Clear chat", on_click=clear_chat, use_container_width=True)
+
 email = st.text_input("Your email (so a person can follow up)", placeholder="you@example.com")
 
 for msg in st.session_state.chat:
