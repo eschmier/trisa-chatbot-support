@@ -42,7 +42,7 @@ def load_kb():
 
 
 STOP = set("the and for you your our are was were with this that have has how can not but from what when where why who "
-           "will would could should there their them they its into about please thanks thank help need want get got".split())
+           "will would could should there their them they its into about please thanks thank help need want get got set use using make does like".split())
 
 
 _ENDINGS = ("ations", "ation", "ments", "ment", "ings", "ing", "ies", "ed", "es", "s")
@@ -88,7 +88,7 @@ def _semantic_scores(message, help_sections):
         return None
 
 
-def pick_articles(message, help_sections=(), limit=5, per_page=2):
+def pick_articles(message, help_sections=(), limit=5, per_page=2, min_score=1.5):
     """Send the most relevant passages to the agent: kb.json entries plus help-site sections.
 
     Two searches are combined. Meaning search (when ready) finds pages worded differently from
@@ -113,7 +113,7 @@ def pick_articles(message, help_sections=(), limit=5, per_page=2):
         scored = []
         for i, (_, t, b) in enumerate(parts):
             score = sum(wt * (2 if w in t else 1) for w, wt in weight.items() if w in t or w in b)
-            if score >= 1.5:
+            if score >= min_score:
                 scored.append((score, i))
         kw_rank = [i for _, i in sorted(scored, reverse=True)]
 
@@ -206,6 +206,17 @@ def help_site(refresh=False, wait=False):
     return _site["sections"]
 
 
+def wait_for_site(timeout=60):
+    """If the help site is being read for the first time (after a restart), wait for it,
+    so the agent is not asked a question with no help pages in front of it."""
+    if not os.environ.get("HELP_SITE_URL"):
+        return
+    help_site()
+    end = time.time() + timeout
+    while _site["loading"] and not _site["sections"] and time.time() < end:
+        time.sleep(0.5)
+
+
 def help_site_status():
     return {k: _site[k] for k in ("pages", "problems", "loaded_at", "loading", "error", "semantic")} | {
         "sections": len(_site["sections"]), "url": os.environ.get("HELP_SITE_URL", "")}
@@ -252,8 +263,12 @@ def resolve_case(case_id):
 def run_case(message, source, email="", customer_tier="standard", account="", help_sections=None):
     message = (message or "")[:4000]
     if help_sections is None:
+        wait_for_site()
         help_sections = help_site()
     articles = pick_articles(message, help_sections)
+    if not articles and help_sections:
+        # Nothing matched strongly. Try once more with a lower bar before giving up.
+        articles = pick_articles(message, help_sections, min_score=0.5)
     result = pipeline.handle_case(message, customer_tier=customer_tier, account=account,
                                   kb_articles=articles)
     # Keep what the agent was shown, so staff can see why it answered or routed.
