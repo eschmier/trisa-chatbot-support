@@ -13,7 +13,9 @@ import pipeline
 BASE = Path(__file__).parent
 SECRET_KEYS = ["ENDEAVOR_URL", "ENDEAVOR_AUTH_URL", "ENDEAVOR_CLIENT_ID", "ENDEAVOR_CLIENT_SECRET",
                "ENDEAVOR_AGENT", "ENDEAVOR_ENVIRONMENT", "ENDEAVOR_VERSION", "STAFF_PASSWORD", "DB_PATH",
-               "HELP_SITE_URL", "HELP_SITE_MAX_PAGES", "SEMANTIC_SEARCH", "SEMANTIC_MIN", "EMBEDDING_MODEL"]
+               "HELP_SITE_URL", "HELP_SITE_MAX_PAGES", "SEMANTIC_SEARCH", "SEMANTIC_MIN", "EMBEDDING_MODEL",
+               "LIMIT_PER_MIN_IP", "LIMIT_PER_DAY_IP", "LIMIT_PER_DAY_EMAIL", "LIMIT_PER_DAY_TOTAL",
+               "MAX_MESSAGE_CHARS"]
 
 
 def load_secrets(secrets):
@@ -218,6 +220,8 @@ def _db():
         id TEXT PRIMARY KEY, created REAL, source TEXT, email TEXT,
         message TEXT, status TEXT, team TEXT, queue TEXT, sla TEXT,
         result TEXT, resolved INTEGER DEFAULT 0)""")
+    conn.execute("CREATE TABLE IF NOT EXISTS hits (ts REAL, ip TEXT, email TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS blocked (ts REAL, ip TEXT, why TEXT)")
     return conn
 
 
@@ -303,3 +307,65 @@ def how_view(result):
     if status == "deflected":
         why = ((result.get("trace") or {}).get("response") or {}).get("reason", "")
     return {"steps": steps, "pages": used or (pages[:3] if status == "deflected" else []), "why": why}
+
+
+# ---------- abuse limits (counted here, so refreshing the page does not reset them) ----------
+
+def max_message_chars():
+    return _int_env("MAX_MESSAGE_CHARS", 1000)
+
+
+def _int_env(name, default):
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def visitor_ip(headers):
+    """Best guess at the visitor's address from the request headers ('' if not available)."""
+    try:
+        fwd = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for") or ""
+        return fwd.split(",")[0].strip() or (headers.get("X-Real-Ip") or headers.get("x-real-ip") or "").strip()
+    except Exception:
+        return ""
+
+
+def check_and_record(ip, email, now=None):
+    """Return (allowed, why). Counts only allowed messages. Never raises: on a database
+    problem it allows the message, so a storage hiccup does not take support offline."""
+    now = now or time.time()
+    ip, email = ip or "", (email or "").strip().lower()
+    limits = [("minute", 60, _int_env("LIMIT_PER_MIN_IP", 5), "ip"),
+              ("day", 86400, _int_env("LIMIT_PER_DAY_IP", 40), "ip"),
+              ("day", 86400, _int_env("LIMIT_PER_DAY_EMAIL", 20), "email"),
+              ("day", 86400, _int_env("LIMIT_PER_DAY_TOTAL", 300), "total")]
+    try:
+        with _db() as db:
+            db.execute("DELETE FROM hits WHERE ts < ?", (now - 86400,))
+            db.execute("DELETE FROM blocked WHERE ts < ?", (now - 7 * 86400,))
+            for name, secs, cap, who in limits:
+                if who == "ip" and not ip:
+                    continue          # address unknown: only the email and total caps apply
+                if who == "email" and not email:
+                    continue
+                col, val = {"ip": ("ip", ip), "email": ("email", email), "total": ("1", 1)}[who]
+                n = db.execute(f"SELECT COUNT(*) FROM hits WHERE ts >= ? AND {col} = ?",
+                               (now - secs, val)).fetchone()[0]
+                if n >= cap:
+                    why = f"{who} over {cap} per {name}"
+                    db.execute("INSERT INTO blocked VALUES (?,?,?)", (now, ip, why))
+                    return False, why
+            db.execute("INSERT INTO hits VALUES (?,?,?)", (now, ip, email))
+        return True, ""
+    except sqlite3.Error:
+        return True, ""
+
+
+def recent_blocked(limit=50):
+    try:
+        with _db() as db:
+            return [dict(r) for r in db.execute(
+                "SELECT ts, ip, why FROM blocked ORDER BY ts DESC LIMIT ?", (limit,))]
+    except sqlite3.Error:
+        return []

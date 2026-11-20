@@ -9,7 +9,7 @@ st.set_page_config(page_title="Customer support", page_icon=":speech_balloon:")
 core.load_secrets(st.secrets)
 core.help_site()  # starts reading the help website in the background, if one is set
 
-MAX_PER_MINUTE = 10
+MAX_PER_MINUTE = 10   # quick per-tab brake; the real limits are counted in core.check_and_record
 GREETING = "Hi! How can I help today?"
 
 try:  # remembers the email in the customer's own browser; the app still works without it
@@ -114,7 +114,7 @@ for msg in st.session_state.chat:
             st.caption(f"Reference: {msg['ref']}")
         show_how(msg.get("how"))
 
-prompt = st.chat_input("Describe your issue")
+prompt = st.chat_input("Describe your issue", max_chars=core.max_message_chars())
 if prompt:
     st.session_state.chat.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -127,6 +127,8 @@ if prompt:
     with st.chat_message("assistant"):
         if len(st.session_state.sent) > MAX_PER_MINUTE:
             kind, text, ref = "blocked", "Too many messages. Please wait a minute.", None
+        elif not core.check_and_record(core.visitor_ip(getattr(st, "context", None) and st.context.headers or {}), email)[0]:
+            kind, text, ref = "blocked", "We're getting a lot of messages right now. Please try again in a little while.", None
         else:
             with st.spinner("Working on it…"):
                 ref, result = core.run_case(prompt, "customer", email=email)
