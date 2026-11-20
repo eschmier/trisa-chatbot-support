@@ -62,15 +62,19 @@ with left:
         elif s["error"]:
             st.error(f"Couldn't read the help website: {s['error']}")
         else:
-            when = datetime.fromtimestamp(s["loaded_at"]).strftime("%b %d, %I:%M %p")
-            st.write(f"**{s['sections']}** sections from **{s['pages']}** pages · read {when}")
+            when = datetime.fromtimestamp(s["built_at"] or s["loaded_at"]).strftime("%b %d, %I:%M %p")
+            st.write(f"**{s['sections']}** sections from **{s['pages']}** pages")
+            st.caption(f"Source: {s['source']} · {'built' if s['source'] == 'saved copy' else 'read'} {when}")
+            if s["source"] == "read live":
+                st.caption("No saved copy in the repo yet, so the site is read at every restart. "
+                           "On GitHub: Actions, then Refresh help index, then Run workflow, to add one.")
             st.caption(f"Search by meaning: {s['semantic']}")
             if s["pages"] and not s["sections"]:
                 st.warning("Pages were read but no text was found. The site may need JavaScript to show its content.")
         if s["problems"]:
             with st.expander(f"{len(s['problems'])} pages couldn't be read"):
                 st.markdown("\n".join(f"- {p}" for p in s["problems"]))
-        if st.button("Re-read help website now", disabled=s["loading"]):
+        if st.button("Refresh help pages now", disabled=s["loading"]):
             core.help_site(refresh=True)
             st.rerun()
 
