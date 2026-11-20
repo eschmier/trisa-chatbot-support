@@ -3,6 +3,7 @@
 Set HELP_SITE_URL to the help center's home page (or its sitemap.xml).
 Only pages on the same site, under the same path, are read.
 """
+import json
 import os
 import re
 import time
@@ -136,3 +137,33 @@ def load_help_site(root=None, max_pages=None, fetch=_get, delay=0.2):
         if delay:
             time.sleep(delay)
     return sections, len(seen), problems
+
+
+# ---------- saved copy ----------
+
+def snapshot_path():
+    return os.environ.get("HELP_INDEX_PATH") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "help_index.json")
+
+
+def save_snapshot(sections, pages, problems, root, path=None):
+    """Write a ready-made copy of the help pages. Returns the path written."""
+    path = path or snapshot_path()
+    data = {"url": root, "built_at": time.time(), "pages": pages, "problems": problems[:20], "sections": sections}
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    os.replace(tmp, path)
+    return path
+
+
+def load_snapshot(root, path=None):
+    """The saved copy as (sections, pages, problems, built_at), or None if missing, unreadable,
+    empty, or built for a different help site than the one now configured."""
+    try:
+        with open(path or snapshot_path(), encoding="utf-8") as f:
+            d = json.load(f)
+        if d.get("url") != root or not d.get("sections"):
+            return None
+        return d["sections"], int(d.get("pages", 0)), list(d.get("problems", [])), float(d.get("built_at", 0))
+    except Exception:
+        return None

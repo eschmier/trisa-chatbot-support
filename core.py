@@ -147,9 +147,9 @@ def pick_articles(message, help_sections=(), limit=5, per_page=2, min_score=1.5)
 import threading
 
 _site = {"sections": [], "pages": 0, "problems": [], "loaded_at": 0.0, "loading": False, "error": "",
+         "source": "", "built_at": 0.0,
          "vectors": None, "vectors_for": None, "embedder": None, "semantic": "not started"}
 _site_lock = threading.Lock()
-SITE_REFRESH_SECONDS = 24 * 3600
 
 
 def _get_embedder():
@@ -177,11 +177,25 @@ def _build_vectors(sections):
         _site.update(vectors=None, vectors_for=None, semantic=f"off, word search only ({type(exc).__name__}: {str(exc)[:120]})")
 
 
-def _load_site():
+def _load_site(live=False):
+    """Use the saved copy (help_index.json) if there is one, else read the website.
+    live=True skips the saved copy: that is the Refresh button."""
     import helpsite
     try:
-        sections, pages, problems = helpsite.load_help_site()
-        _site.update(sections=sections, pages=pages, problems=problems[:20], error="")
+        snap = None if live else helpsite.load_snapshot(os.environ.get("HELP_SITE_URL", ""))
+        if snap:
+            sections, pages, problems, built = snap
+            _site.update(sections=sections, pages=pages, problems=problems[:20], error="",
+                         source="saved copy", built_at=built)
+        else:
+            sections, pages, problems = helpsite.load_help_site()
+            _site.update(sections=sections, pages=pages, problems=problems[:20], error="",
+                         source="read live", built_at=time.time())
+            if live and sections:
+                try:  # keep it for the next restart if this server's disk allows
+                    helpsite.save_snapshot(sections, pages, problems, os.environ.get("HELP_SITE_URL", ""))
+                except OSError:
+                    pass
         _build_vectors(sections)
     except Exception as exc:
         _site["error"] = str(exc)
@@ -190,14 +204,13 @@ def _load_site():
 
 
 def help_site(refresh=False, wait=False):
-    """Current help-site sections. Starts a background read when needed."""
+    """Current help-site sections. Loaded once per app start; refresh=True re-reads the website."""
     if not os.environ.get("HELP_SITE_URL"):
         return []
     with _site_lock:
-        stale = time.time() - _site["loaded_at"] > SITE_REFRESH_SECONDS
-        if (refresh or stale) and not _site["loading"]:
+        if (refresh or not _site["loaded_at"]) and not _site["loading"]:
             _site["loading"] = True
-            t = threading.Thread(target=_load_site, daemon=True)
+            t = threading.Thread(target=_load_site, args=(refresh,), daemon=True)
             t.start()
         else:
             t = None
@@ -218,7 +231,7 @@ def wait_for_site(timeout=60):
 
 
 def help_site_status():
-    return {k: _site[k] for k in ("pages", "problems", "loaded_at", "loading", "error", "semantic")} | {
+    return {k: _site[k] for k in ("pages", "problems", "loaded_at", "loading", "error", "semantic", "source", "built_at")} | {
         "sections": len(_site["sections"]), "url": os.environ.get("HELP_SITE_URL", "")}
 
 
