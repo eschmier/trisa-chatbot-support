@@ -28,7 +28,7 @@ if not st.session_state.get("staff_ok"):
     st.stop()
 
 st.title("Support staff console")
-LABEL = {"deflected": "Answered by agent", "routed": "Needs a person",
+LABEL = {"greeting": "Greeting (friendly reply)", "off_topic": "Off topic (declined)", "deflected": "Answered by agent", "routed": "Needs a person",
          "blocked": "Blocked", "error": "Error, needs a person"}
 
 left, right = st.columns([1, 2], gap="large")
