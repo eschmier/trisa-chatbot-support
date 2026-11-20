@@ -3,6 +3,8 @@ import hmac
 import os
 from datetime import datetime
 
+import time
+
 import streamlit as st
 
 import core
@@ -42,6 +44,12 @@ with left:
             with st.spinner("Running all five steps…"):
                 core.run_case(message, "staff test", customer_tier=tier, account=account)
             st.success("Done. See it in the case list.")
+    st.subheader("Blocked by rate limits")
+    _b = core.recent_blocked(20)
+    if not _b:
+        st.caption("None in the last 7 days.")
+    for _x in _b:
+        st.caption(time.strftime("%b %d %H:%M", time.localtime(_x["ts"])) + f" · {_x['ip'] or 'address unknown'} · {_x['why']}")
     st.subheader("Help website")
     core.help_site()
     s = core.help_site_status()
