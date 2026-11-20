@@ -267,6 +267,14 @@ SLA_WORDS = {"1h": "within the hour", "4h": "within 4 hours",
 TEAM_WORDS = {"help_desk": "support team", "solutions_engineering": "engineering team"}
 
 
+GREETING_REPLY = ("Happy to help! If you have a question about TRISA, such as the Envoy node, "
+                  "webhooks, configuration or setup, just ask.")
+OFF_TOPIC_REPLY = ("I can't help with that. I can only answer questions about TRISA, such as the Envoy "
+                   "node, webhooks and configuration. For anything else, try a general web search or a "
+                   "general-purpose AI assistant. For TRISA questions, the documentation is at "
+                   "https://trisa.dev/.")
+
+
 def customer_view(result):
     """What a customer may see: never reasons, routing internals or traces."""
     status = result["status"]
@@ -278,6 +286,10 @@ def customer_view(result):
         when = SLA_WORDS.get(r.get("sla_tier"), "as soon as possible")
         return "handoff", (f"Thanks, I've passed this to our {team} with the details. "
                            f"A person will follow up {when}.")
+    if status == "greeting":
+        return "answer", GREETING_REPLY
+    if status == "off_topic":
+        return "answer", OFF_TOPIC_REPLY
     if status == "blocked":
         return "blocked", ("Sorry, I can't help with that request. "
                            "If you need support, please describe your issue.")
@@ -287,7 +299,7 @@ def customer_view(result):
 def how_view(result):
     """A customer-safe 'how I answered' summary. Never guardrail reasons, routing or classification."""
     status = result.get("status")
-    if status == "blocked":
+    if status in ("blocked", "off_topic", "greeting"):
         return None
     steps = ["Checked your message is safe to process"]
     if status in ("deflected", "routed"):

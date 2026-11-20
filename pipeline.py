@@ -48,7 +48,7 @@ def run_task(task, **context):
 
 
 def handle_case(message, customer_tier="standard", account="", kb_articles=None, run=run_task):
-    """Return {"status": deflected|routed|blocked|error, ...} plus a full trace."""
+    """Return {"status": deflected|routed|off_topic|greeting|blocked|error, ...} plus a full trace."""
     kb_articles = kb_articles or []
     trace = {}
 
@@ -75,6 +75,14 @@ def handle_case(message, customer_tier="standard", account="", kb_articles=None,
                    category=case.get("category"), priority=case.get("priority"),
                    summary=case.get("summary"), kb_articles=kb_articles)
         trace["response"] = resp
+
+        # Just a hello or thanks: reply warmly, no human needed.
+        if resp.get("action") == "greeting":
+            return {"status": "greeting", "trace": trace}
+
+        # Not about the product at all: decline politely, no human needed.
+        if resp.get("action") == "off_topic":
+            return {"status": "off_topic", "trace": trace}
 
         # 4. Output guardrail on a reply the agent intends to send.
         # A deflection counts as "attempted" only if the guardrail stops it.
