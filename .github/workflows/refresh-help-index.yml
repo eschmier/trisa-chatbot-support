@@ -1,0 +1,34 @@
+name: Refresh help index
+
+# Runs only when you click "Run workflow" on the Actions tab. There is no schedule.
+on:
+  workflow_dispatch:
+    inputs:
+      help_site_url:
+        description: "Help site address (the sitemap)"
+        required: true
+        default: "https://trisa.dev/en/sitemap.xml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests beautifulsoup4
+      - name: Read the help site and save help_index.json
+        env:
+          HELP_SITE_URL: ${{ inputs.help_site_url }}
+        run: python build_index.py
+      - name: Save the new copy to the repo
+        run: |
+          git config user.name "help-index-bot"
+          git config user.email "help-index-bot@users.noreply.github.com"
+          git add help_index.json
+          git diff --cached --quiet || git commit -m "Refresh help index"
+          git push
