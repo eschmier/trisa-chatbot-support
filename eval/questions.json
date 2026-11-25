@@ -1,0 +1,112 @@
+	
+0	
+id	"mtls-setup"
+question	"How do I set up mTLS?"
+expect_any	
+0	"joining-trisa"
+1	"envoy/webhook"
+2	"envoy/configuration"
+3	"reference/faq"
+1	
+id	"webhook-enable"
+question	"How do I enable the webhook and set the endpoint URL?"
+expect_any	
+0	"envoy/webhook"
+1	"envoy/configuration"
+2	
+id	"k8s-deploy"
+question	"How do I deploy Envoy on Kubernetes?"
+expect_any	
+0	"envoy/deploy"
+3	
+id	"api-key"
+question	"How do I create an API key for Envoy?"
+expect_any	
+0	"envoy/deploy"
+1	"envoy/api"
+4	
+id	"create-user"
+question	"How do I create a user and what roles are available?"
+expect_any	
+0	"envoy/deploy"
+5	
+id	"web-port"
+question	"What is the default port for the Envoy web UI?"
+expect_any	
+0	"envoy/configuration"
+6	
+id	"maintenance"
+question	"How do I put my node into maintenance mode?"
+expect_any	
+0	"envoy/configuration"
+7	
+id	"join"
+question	"How do I join the TRISA network?"
+expect_any	
+0	"joining-trisa"
+8	
+id	"pkcs12"
+question	"What is a PKCS12 file and what is inside it?"
+expect_any	
+0	"joining-trisa/pkcs12"
+9	
+id	"testnet-mainnet"
+question	"What is the difference between TestNet and MainNet?"
+expect_any	
+0	"reference/faq"
+1	"testing"
+10	
+id	"rvasps"
+question	"What are the robot VASPs for testing?"
+expect_any	
+0	"testing/rvasps"
+1	"testing/index"
+11	
+id	"trisa-cli"
+question	"How do I use the TRISA CLI?"
+expect_any	
+0	"testing/trisa-cli"
+12	
+id	"test-certs"
+question	"How can I create test certificates?"
+expect_any	
+0	"testing/certs-cli"
+13	
+id	"error-51"
+question	"What does error code 51 UNKNOWN_WALLET_ADDRESS mean?"
+expect_any	
+0	"api/errors"
+14	
+id	"gds"
+question	"What is the Global Directory Service?"
+expect_any	
+0	"gds/"
+1	"reference/faq"
+15	
+id	"envelopes"
+question	"What are secure envelopes?"
+expect_any	
+0	"data/envelopes"
+1	"reference/faq"
+16	
+id	"ivms"
+question	"How do I send IVMS 101 identity data?"
+expect_any	
+0	"data/ivms"
+1	"data/payloads"
+17	
+id	"openvasp"
+question	"How do I integrate with OpenVASP or TRP?"
+expect_any	
+0	"openvasp"
+18	
+id	"common-name"
+question	"Why does my common name have to match my endpoint?"
+expect_any	
+0	"reference/faq"
+1	"joining-trisa"
+19	
+id	"sunrise"
+question	"How do I turn on Sunrise emails?"
+expect_any	
+0	"envoy/configuration"
