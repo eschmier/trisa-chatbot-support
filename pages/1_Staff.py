@@ -28,6 +28,18 @@ if not st.session_state.get("staff_ok"):
     st.stop()
 
 st.title("Support staff console")
+_core_store = core.storage_status()
+if os.environ.get("DATABASE_URL"):
+    core.list_cases(1)  # makes a connection so the status below is current
+    _core_store = core.storage_status()
+    if _core_store["backend"] == "postgres":
+        st.caption("Storage: hosted database. Cases are kept across restarts.")
+    else:
+        st.error("The hosted database can't be reached, so cases are being saved to a temporary file that is "
+                 "erased on restart. " + (_core_store["error"] or ""))
+else:
+    st.warning("Storage: temporary file. Cases are erased when the app restarts. "
+               "Add DATABASE_URL to Secrets to keep them.")
 LABEL = {"greeting": "Greeting (friendly reply)", "off_topic": "Off topic (declined)", "deflected": "Answered by agent", "routed": "Needs a person",
          "blocked": "Blocked", "error": "Error, needs a person"}
 
