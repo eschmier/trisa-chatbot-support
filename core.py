@@ -14,7 +14,7 @@ BASE = Path(__file__).parent
 SECRET_KEYS = ["ENDEAVOR_URL", "ENDEAVOR_AUTH_URL", "ENDEAVOR_CLIENT_ID", "ENDEAVOR_CLIENT_SECRET",
                "ENDEAVOR_AGENT", "ENDEAVOR_ENVIRONMENT", "ENDEAVOR_VERSION", "STAFF_PASSWORD", "DB_PATH",
                "HELP_SITE_URL", "HELP_SITE_MAX_PAGES", "SEMANTIC_SEARCH", "SEMANTIC_MIN", "EMBEDDING_MODEL",
-               "LIMIT_PER_MIN_IP", "LIMIT_PER_DAY_IP", "LIMIT_PER_DAY_EMAIL", "LIMIT_PER_DAY_TOTAL",
+               "DATABASE_URL", "LIMIT_PER_MIN_IP", "LIMIT_PER_DAY_IP", "LIMIT_PER_DAY_EMAIL", "LIMIT_PER_DAY_TOTAL",
                "MAX_MESSAGE_CHARS"]
 
 
@@ -237,16 +237,92 @@ def help_site_status():
 
 # ---------- storage ----------
 
-def _db():
-    conn = sqlite3.connect(os.environ.get("DB_PATH", str(BASE / "cases.db")))
-    conn.row_factory = sqlite3.Row
-    conn.execute("""CREATE TABLE IF NOT EXISTS cases (
-        id TEXT PRIMARY KEY, created REAL, source TEXT, email TEXT,
+_SCHEMA = [
+    """CREATE TABLE IF NOT EXISTS cases (
+        id TEXT PRIMARY KEY, created DOUBLE PRECISION, source TEXT, email TEXT,
         message TEXT, status TEXT, team TEXT, queue TEXT, sla TEXT,
-        result TEXT, resolved INTEGER DEFAULT 0)""")
-    conn.execute("CREATE TABLE IF NOT EXISTS hits (ts REAL, ip TEXT, email TEXT)")
-    conn.execute("CREATE TABLE IF NOT EXISTS blocked (ts REAL, ip TEXT, why TEXT)")
+        result TEXT, resolved INTEGER DEFAULT 0)""",
+    "CREATE TABLE IF NOT EXISTS hits (ts DOUBLE PRECISION, ip TEXT, email TEXT)",
+    "CREATE TABLE IF NOT EXISTS blocked (ts DOUBLE PRECISION, ip TEXT, why TEXT)",
+    "CREATE INDEX IF NOT EXISTS hits_ts ON hits (ts)",
+    "CREATE INDEX IF NOT EXISTS cases_created ON cases (created)",
+]
+_store = {"backend": "file", "error": "", "ready": set()}
+
+
+class _Conn:
+    """Same calls for the file database and Postgres. Commits on success, closes always."""
+
+    def __init__(self, raw, kind):
+        self.raw, self.kind = raw, kind
+
+    def execute(self, sql, params=()):
+        if self.kind == "postgres":
+            sql = sql.replace("?", "%s")  # none of our SQL contains a literal question mark
+        return self.raw.execute(sql, params)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, et, ev, tb):
+        try:
+            (self.raw.rollback if et else self.raw.commit)()
+        finally:
+            self.raw.close()
+        return False
+
+
+def _hide_addresses(text):
+    return re.sub(r"postgres(?:ql)?://\S+", "[database address hidden]", str(text))[:200]
+
+
+def _connect_postgres(url):
+    import psycopg
+    from psycopg.rows import dict_row
+    last = None
+    for attempt in range(2):  # a sleeping hosted database can take a moment to wake
+        try:
+            return psycopg.connect(url, row_factory=dict_row, connect_timeout=15)
+        except Exception as exc:
+            last = exc
+            time.sleep(2)
+    raise last
+
+
+def _db():
+    """Postgres when DATABASE_URL is set and reachable, otherwise the local file database
+    (so customers are never cut off). The Staff page shows which one is in use."""
+    url = os.environ.get("DATABASE_URL", "").strip()
+    conn = None
+    if url:
+        try:
+            raw = _connect_postgres(url)
+            conn = _Conn(raw, "postgres")
+            _store.update(backend="postgres", error="")
+        except Exception as exc:
+            _store.update(backend="file (database unreachable)", error=_hide_addresses(f"{type(exc).__name__}: {exc}"))
+    if conn is None:
+        path = os.environ.get("DB_PATH", str(BASE / "cases.db"))
+        raw = sqlite3.connect(path)
+        raw.row_factory = sqlite3.Row
+        conn = _Conn(raw, "file")
+        if not url:
+            _store.update(backend="file", error="")
+    key = (conn.kind, url if conn.kind == "postgres" else os.environ.get("DB_PATH", ""))
+    if key not in _store["ready"]:
+        try:
+            for stmt in _SCHEMA:
+                conn.execute(stmt)
+            conn.raw.commit()
+            _store["ready"].add(key)
+        except Exception:
+            conn.raw.close()
+            raise
     return conn
+
+
+def storage_status():
+    return {"backend": _store["backend"], "error": _store["error"]}
 
 
 def save_case(source, email, message, result):
@@ -390,15 +466,15 @@ def check_and_record(ip, email, now=None):
                 if who == "email" and not email:
                     continue
                 col, val = {"ip": ("ip", ip), "email": ("email", email), "total": ("1", 1)}[who]
-                n = db.execute(f"SELECT COUNT(*) FROM hits WHERE ts >= ? AND {col} = ?",
-                               (now - secs, val)).fetchone()[0]
+                n = db.execute(f"SELECT COUNT(*) AS n FROM hits WHERE ts >= ? AND {col} = ?",
+                               (now - secs, val)).fetchone()["n"]
                 if n >= cap:
                     why = f"{who} over {cap} per {name}"
                     db.execute("INSERT INTO blocked VALUES (?,?,?)", (now, ip, why))
                     return False, why
             db.execute("INSERT INTO hits VALUES (?,?,?)", (now, ip, email))
         return True, ""
-    except sqlite3.Error:
+    except Exception:
         return True, ""
 
 
@@ -407,5 +483,5 @@ def recent_blocked(limit=50):
         with _db() as db:
             return [dict(r) for r in db.execute(
                 "SELECT ts, ip, why FROM blocked ORDER BY ts DESC LIMIT ?", (limit,))]
-    except sqlite3.Error:
+    except Exception:
         return []
