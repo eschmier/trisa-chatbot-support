@@ -485,3 +485,18 @@ def recent_blocked(limit=50):
                 "SELECT ts, ip, why FROM blocked ORDER BY ts DESC LIMIT ?", (limit,))]
     except Exception:
         return []
+
+
+# ---------- search test ----------
+
+def run_search_test(questions, help_sections, k=5):
+    """For each test question, does the search put an expected page in the top k?
+    Same search the customer chat uses, minus the AI steps."""
+    out = []
+    for q in questions:
+        arts = pick_articles(q["question"], help_sections, limit=k)
+        urls = [a.get("url", "") for a in arts]
+        hit = next((i + 1 for i, u in enumerate(urls) if any(e in u for e in q["expect_any"])), 0)
+        out.append({"id": q["id"], "question": q["question"], "pass": bool(hit), "rank": hit,
+                    "found": [u.replace("https://", "") for u in urls[:k]]})
+    return out
