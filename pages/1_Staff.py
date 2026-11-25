@@ -62,6 +62,18 @@ with left:
         st.caption("None in the last 7 days.")
     for _x in _b:
         st.caption(time.strftime("%b %d %H:%M", time.localtime(_x["ts"])) + f" · {_x['ip'] or 'address unknown'} · {_x['why']}")
+    with st.expander("Search test (20 questions)"):
+        st.caption("Checks whether the search finds the right help page. It does not call the AI, so it is free.")
+        if st.button("Run search test"):
+            import json as _json
+            _qs = _json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "eval", "questions.json")))
+            _res = core.run_search_test(_qs, core.help_site())
+            _ok = sum(r["pass"] for r in _res)
+            st.write(f"**{_ok} of {len(_res)}** questions found a right page in the top 5.")
+            for r in _res:
+                st.markdown(("✅ " if r["pass"] else "❌ ") + r["question"] + (f" (rank {r['rank']})" if r["pass"] else ""))
+                if not r["pass"]:
+                    st.caption("Found instead: " + (", ".join(r["found"]) or "nothing"))
     st.subheader("Help website")
     core.help_site()
     s = core.help_site_status()
